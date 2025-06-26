@@ -27,7 +27,7 @@ class OpenAIClient:
             return None
     
     def extract_meeting_info(self, user_input: str, conversation_context: str) -> Dict:
-        """Extract meeting information from user input"""
+        """Extract meeting information from user input - IMPROVED PROMPT"""
         system_prompt = """
         You are a meeting scheduling assistant. Extract relevant information from user input.
         Return a JSON object with the following structure:
@@ -41,10 +41,19 @@ class OpenAIClient:
             "clarification_question": "string or null"
         }
         
-        Examples:
+        IMPORTANT EXAMPLES:
+        - "30-minute slot for tomorrow morning" -> {"duration_minutes": 30, "preferred_times": ["morning"]}
         - "1 hour meeting" -> {"duration_minutes": 60}
         - "Tuesday afternoon" -> {"preferred_days": ["Tuesday"], "preferred_times": ["afternoon"]}
+        - "tomorrow morning" -> {"preferred_times": ["morning"]}
         - "not too early" -> {"constraints": ["not_early"]}
+        - "quick meeting" -> {"duration_minutes": 15}
+        
+        Focus on:
+        - Duration: convert "hour"->60, "minutes"->exact number, "quick"->15
+        - Times: "morning", "afternoon", "evening"
+        - Days: specific day names
+        - Constraints: "not early", "not late", etc.
         """
         
         messages = [
@@ -60,7 +69,7 @@ class OpenAIClient:
         except json.JSONDecodeError:
             logger.error(f"Failed to parse JSON response: {response}")
             return {}
-    
+        
     def generate_response(self, context: str, available_slots: List[str], 
                          user_input: str) -> str:
         """Generate conversational response"""

@@ -8,31 +8,64 @@ logger = setup_logger(__name__)
 class CalendarUtils:
     @staticmethod
     def filter_slots_by_preferences(slots: List[Dict], preferences: Dict) -> List[Dict]:
-        """Filter available slots based on user preferences"""
+        """Filter available slots based on user preferences - FIXED"""
         filtered_slots = []
+        
+        print(f"DEBUG: Filtering {len(slots)} slots with preferences: {preferences}")
         
         for slot in slots:
             slot_start = slot['start']
+            slot_date = slot_start.date()
+            slot_hour = slot_start.hour
             
-            # Check day preferences
-            if preferences.get('days'):
+            # CHECK 1: Relative dates (like "tomorrow") - THIS WAS MISSING
+            relative_dates = preferences.get('relative_dates', [])
+            if relative_dates:
+                target_dates = [rd.get('target_date') for rd in relative_dates if rd.get('target_date')]
+                if target_dates and slot_date not in target_dates:
+                    print(f"DEBUG: Slot {slot_date} not in target dates {target_dates}")
+                    continue
+            
+            # CHECK 2: Day preferences
+            preferred_days = preferences.get('days', [])
+            if preferred_days:
                 day_name = slot_start.strftime('%A')
-                if day_name not in preferences['days']:
+                if day_name not in preferred_days:
                     continue
             
-            # Check time preferences
-            if preferences.get('times'):
-                hour = slot_start.hour
-                if not CalendarUtils._matches_time_preference(hour, preferences['times']):
+            # CHECK 3: Time preferences - FIXED LOGIC
+            time_preferences = preferences.get('times', [])
+            if time_preferences:
+                matches_time = False
+                for pref in time_preferences:
+                    if pref == 'morning' and 6 <= slot_hour < 12:
+                        matches_time = True
+                        break
+                    elif pref == 'afternoon' and 12 <= slot_hour < 18:
+                        matches_time = True
+                        break
+                    elif pref == 'evening' and 18 <= slot_hour < 22:
+                        matches_time = True
+                        break
+                
+                if not matches_time:
+                    print(f"DEBUG: Slot at {slot_hour}:00 doesn't match time preferences {time_preferences}")
                     continue
             
-            # Check constraints
-            if preferences.get('constraints'):
-                if CalendarUtils._violates_constraints(slot_start, preferences['constraints']):
-                    continue
+            # CHECK 4: Constraints
+            constraints = preferences.get('constraints', [])
+            violates_constraint = False
+            for constraint in constraints:
+                if constraint == 'not_early' and slot_hour < 9:
+                    violates_constraint = True
+                    break
+            
+            if violates_constraint:
+                continue
             
             filtered_slots.append(slot)
         
+        print(f"DEBUG: Filtered to {len(filtered_slots)} matching slots")
         return filtered_slots
     
     @staticmethod

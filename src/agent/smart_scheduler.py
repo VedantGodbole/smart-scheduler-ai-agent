@@ -216,13 +216,36 @@ class SmartScheduler:
             return "I'd be happy to help you schedule a meeting. How long should the meeting be? You can say something like '1 hour' or '30 minutes'."
     
     def _handle_preferences_collection(self, user_input: str, extracted_info: Dict) -> str:
-        """Handle collecting time preferences"""
-        # Update preferences from extracted info
+        """Handle collecting time preferences - FIXED"""
+        
+        # Parse time preferences using the enhanced parser
+        preferences = self.time_parser.parse_time_preference(user_input)
+        
+        # Update meeting context with ALL preference types
+        if preferences.get('days'):
+            current_days = self.conversation.meeting_context.get('preferred_days', [])
+            self.conversation.meeting_context['preferred_days'] = list(set(current_days + preferences['days']))
+        
+        if preferences.get('times'):
+            current_times = self.conversation.meeting_context.get('preferred_times', [])
+            self.conversation.meeting_context['preferred_times'] = list(set(current_times + preferences['times']))
+        
+        if preferences.get('constraints'):
+            current_constraints = self.conversation.meeting_context.get('constraints', [])
+            self.conversation.meeting_context['constraints'] = list(set(current_constraints + preferences['constraints']))
+        
+        # CRITICAL FIX: Store relative dates
+        if preferences.get('relative_dates'):
+            self.conversation.meeting_context['relative_dates'] = preferences['relative_dates']
+        
+        # Also update from extracted_info
         for key in ['preferred_days', 'preferred_times', 'constraints']:
             if key in extracted_info and extracted_info[key]:
                 current_list = self.conversation.meeting_context.get(key, [])
                 current_list.extend(extracted_info[key])
-                self.conversation.meeting_context[key] = list(set(current_list))  # Remove duplicates
+                self.conversation.meeting_context[key] = list(set(current_list))
+        
+        print(f"DEBUG: Updated meeting context: {self.conversation.meeting_context}")
         
         # Search for available slots
         return self._search_and_present_slots()
@@ -255,7 +278,7 @@ class SmartScheduler:
         return self.llm_client.generate_response(context, [], user_input)
     
     def _search_and_present_slots(self, suggest_alternatives: bool = False) -> str:
-        """Search for available slots and present them to user"""
+        """Search for available slots and present them to user - FIXED"""
         try:
             duration = self.conversation.meeting_context['duration_minutes']
             if not duration:
@@ -264,46 +287,79 @@ class SmartScheduler:
             # Show search indicator
             if self.voice_mode:
                 print("🔍 Searching your calendar...")
-                time.sleep(1)  # Brief pause to show we're working
+                time.sleep(1)
             
-            # Define search range (next 14 days)
-            start_date = datetime.now(pytz.UTC)
-            end_date = start_date + timedelta(days=14)
+            # FIXED: Better date range logic
+            preferences = {
+                'days': self.conversation.meeting_context.get('preferred_days', []),
+                'times': self.conversation.meeting_context.get('preferred_times', []),
+                'constraints': self.conversation.meeting_context.get('constraints', []),
+                'relative_dates': self.conversation.meeting_context.get('relative_dates', [])
+            }
+            
+            # Determine date range based on preferences
+            if preferences.get('relative_dates'):
+                # If they said "tomorrow", search only tomorrow
+                start_date = datetime.now(pytz.UTC)
+                for rd in preferences['relative_dates']:
+                    if rd.get('target_date'):
+                        target_date = rd['target_date']
+                        start_date = datetime.combine(target_date, datetime.min.time())
+                        start_date = pytz.UTC.localize(start_date)
+                        end_date = start_date + timedelta(days=1)
+                        break
+                else:
+                    # Default range
+                    end_date = start_date + timedelta(days=14)
+            else:
+                # Default range
+                start_date = datetime.now(pytz.UTC)
+                end_date = start_date + timedelta(days=14)
+            
+            print(f"DEBUG: Searching from {start_date.date()} to {end_date.date()}")
             
             # Get available slots
             all_slots = self.calendar.find_free_slots(duration, start_date, end_date)
             
             if not all_slots:
-                return "I'm sorry, I couldn't find any available slots in the next two weeks. Would you like me to check a different time range?"
+                return "I'm sorry, I couldn't find any available slots in the specified time range. Would you like me to check a different time period?"
             
-            # Filter by preferences
-            preferences = {
-                'days': self.conversation.meeting_context.get('preferred_days', []),
-                'times': self.conversation.meeting_context.get('preferred_times', []),
-                'constraints': self.conversation.meeting_context.get('constraints', [])
-            }
+            print(f"DEBUG: Found {len(all_slots)} total slots")
             
-            if suggest_alternatives:
-                # Suggest alternatives if original preferences don't work
-                filtered_slots = CalendarUtils.suggest_alternatives(preferences, all_slots)
-                intro = "Here are some alternative times that might work:"
-            else:
-                filtered_slots = CalendarUtils.filter_slots_by_preferences(all_slots, preferences)
-                intro = "Great! I found these available times:"
+            # Filter by preferences using the FIXED method
+            filtered_slots = CalendarUtils.filter_slots_by_preferences(all_slots, preferences)
             
             if not filtered_slots:
-                # No slots match preferences, suggest alternatives
-                alternative_slots = CalendarUtils.suggest_alternatives(preferences, all_slots)
-                if alternative_slots:
-                    return self._format_slot_options(alternative_slots, "I couldn't find slots matching your exact preferences, but here are some alternatives:")
+                # Suggest alternatives
+                if suggest_alternatives:
+                    # Show some slots from the next day or different times
+                    alternative_slots = all_slots[:5]  # Just show first 5 available
+                    intro = "I couldn't find slots matching your exact preferences, but here are some alternatives:"
                 else:
-                    return "I'm sorry, I couldn't find any suitable slots. Would you like to try different preferences or a different time range?"
+                    # First time, suggest nearby alternatives intelligently
+                    tomorrow_date = (datetime.now() + timedelta(days=1)).date()
+                    afternoon_slots = [s for s in all_slots if s['start'].date() == tomorrow_date and 12 <= s['start'].hour < 18]
+                    
+                    if afternoon_slots:
+                        intro = "I couldn't find morning slots tomorrow, but I found these afternoon options:"
+                        alternative_slots = afternoon_slots[:3]
+                    else:
+                        # Show next day options
+                        next_day_slots = [s for s in all_slots if s['start'].date() > tomorrow_date]
+                        intro = "Tomorrow morning is busy, but here are some options for the next few days:"
+                        alternative_slots = next_day_slots[:5]
+                
+                if alternative_slots:
+                    return self._format_slot_options(alternative_slots, intro)
+                else:
+                    return "I'm sorry, I couldn't find any suitable slots. Would you like to try different preferences?"
             
-            return self._format_slot_options(filtered_slots[:5], intro)  # Show max 5 options
+            return self._format_slot_options(filtered_slots[:5], "Great! I found these available times:")
             
         except Exception as e:
             logger.error(f"Error searching for slots: {e}")
             return "I'm having trouble accessing the calendar right now. Could you please try again in a moment?"
+
     
     def _format_slot_options(self, slots: List[Dict], intro: str) -> str:
         """Format available slots for presentation with better readability"""

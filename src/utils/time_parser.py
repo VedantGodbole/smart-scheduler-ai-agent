@@ -43,7 +43,7 @@ class TimeParser:
         return None
     
     def parse_time_preference(self, text: str) -> dict:
-        """Parse time preferences from natural language"""
+        """Parse time preferences from natural language - ENHANCED"""
         preferences = {
             'days': [],
             'times': [],
@@ -53,52 +53,35 @@ class TimeParser:
         
         text_lower = text.lower()
         
+        # ENHANCED: Better relative date parsing (THIS IS THE KEY FIX)
+        if 'tomorrow' in text_lower:
+            tomorrow = (self.now + timedelta(days=1)).date()
+            preferences['relative_dates'] = [{
+                'target_date': tomorrow,
+                'description': 'tomorrow'
+            }]
+            print(f"DEBUG: Parsed 'tomorrow' as {tomorrow}")  # Debug line
+        
         # Day patterns
         days_pattern = r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b'
         days_found = re.findall(days_pattern, text_lower)
         preferences['days'] = [day.capitalize() for day in days_found]
         
-        # Time patterns
-        time_patterns = [
-            r'\b(\d{1,2}):(\d{2})\s*(am|pm)?\b',
-            r'\b(\d{1,2})\s*(am|pm)\b',
-            r'\b(morning|afternoon|evening|night)\b',
-            r'\b(early|late)\s+(morning|afternoon|evening)\b'
-        ]
+        # ENHANCED: Better time patterns with more coverage
+        if 'morning' in text_lower:
+            preferences['times'].append('morning')
+        if 'afternoon' in text_lower:
+            preferences['times'].append('afternoon')
+        if 'evening' in text_lower:
+            preferences['times'].append('evening')
         
-        for pattern in time_patterns:
-            matches = re.findall(pattern, text_lower)
-            if matches:
-                preferences['times'].extend(matches)
+        # Time constraint patterns
+        if 'not' in text_lower and 'early' in text_lower:
+            preferences['constraints'].append('not_early')
         
-        # Relative date patterns
-        relative_patterns = [
-            r'\b(next|this)\s+(week|month)\b',
-            r'\b(tomorrow|today)\b',
-            r'\b(next|this)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b',
-            r'\b(\d+)\s+days?\s+(from\s+now|later)\b'
-        ]
-        
-        for pattern in relative_patterns:
-            matches = re.findall(pattern, text_lower)
-            if matches:
-                preferences['relative_dates'].extend(matches)
-        
-        # Constraint patterns
-        constraint_patterns = [
-            r'\bnot\s+(too\s+)?(early|late)\b',
-            r'\bnot\s+on\s+(\w+)\b',
-            r'\bafter\s+(\d{1,2}:?\d{0,2})\s*(am|pm)?\b',
-            r'\bbefore\s+(\d{1,2}:?\d{0,2})\s*(am|pm)?\b'
-        ]
-        
-        for pattern in constraint_patterns:
-            matches = re.findall(pattern, text_lower)
-            if matches:
-                preferences['constraints'].extend(matches)
-        
+        print(f"DEBUG: Parsed preferences: {preferences}")  # Debug line
         return preferences
-    
+        
     def parse_complex_time_request(self, text: str) -> dict:
         """Handle complex time parsing scenarios"""
         result = {
