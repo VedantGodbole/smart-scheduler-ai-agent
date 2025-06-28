@@ -41,4 +41,4 @@ Thumbs.db
 credentials/
 .env
 *.key
-*.pem
+*.pem.env
