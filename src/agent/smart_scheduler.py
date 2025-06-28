@@ -29,9 +29,9 @@ class SmartScheduler:
         self.voice_mode = True
         
         # Timing settings for better user experience
-        self.pause_after_agent_response = 3  # Seconds to pause after agent speaks
+        self.pause_after_agent_response = 2  # Seconds to pause after agent speaks
         self.pause_after_user_speaks = 1     # Seconds to pause after user speaks
-        self.listening_timeout = 15.0          # Longer timeout for voice input
+        self.listening_timeout = 35.0          # Longer timeout for voice input
         
         logger.info("Smart Scheduler initialized")
     
@@ -130,6 +130,7 @@ class SmartScheduler:
             time.sleep(1)
             # Try one more time with a prompt
             print("🎤 Please speak now...")
+            time.sleep(1)
             user_input = self.stt.listen_and_transcribe(timeout=10.0)
             if user_input:
                 print(f"👤 You said: {user_input}")
@@ -150,49 +151,209 @@ class SmartScheduler:
         return any(phrase in user_input.lower() for phrase in exit_phrases)
     
     def _process_user_input(self, user_input: str) -> str:
-        """Process user input and generate appropriate response"""
+        """ENHANCED: Process user input with smart routing"""
         try:
-            # Show processing indicator for longer operations
             if self.voice_mode:
                 print("🤔 Processing...")
             
-            # Extract information from user input
             context = self.conversation.get_context_summary()
             extracted_info = self.llm_client.extract_meeting_info(user_input, context)
             
-            # Parse time-related information
-            duration = self.time_parser.parse_duration(user_input)
-            if duration:
-                extracted_info['duration_minutes'] = duration
+            # DEBUG: Print what was extracted
+            print(f"DEBUG: Extracted info: {extracted_info}")
             
-            preferences = self.time_parser.parse_time_preference(user_input)
-            if preferences['days']:
-                extracted_info['preferred_days'] = preferences['days']
-            if preferences['times']:
-                extracted_info['preferred_times'] = preferences['times']
-            if preferences['constraints']:
-                extracted_info['constraints'] = preferences['constraints']
+            # Route based on request type
+            request_type = extracted_info.get('request_type', 'simple')
+            print(f"DEBUG: Request type: {request_type}")
             
-            # Handle different conversation states
+            # DEBUG: Check conversation state
             state = self.conversation.get_conversation_state()
+            print(f"DEBUG: Conversation state: {state}")
             
-            if state == "collecting_duration":
-                response = self._handle_duration_collection(user_input, extracted_info)
-            elif state == "collecting_preferences":
-                response = self._handle_preferences_collection(user_input, extracted_info)
-            elif state == "searching_slots":
-                response = self._handle_slot_search(user_input, extracted_info)
+            if request_type == 'requirement_change':
+                print("DEBUG: Routing to requirement_change")
+                response = self._handle_requirement_change(user_input, extracted_info)
+            elif request_type == 'deadline_based':
+                print("DEBUG: Routing to deadline_based")
+                response = self._handle_deadline_request(user_input, extracted_info)
+            elif request_type == 'date_calculation':
+                print("DEBUG: Routing to date_calculation")
+                response = self._handle_date_calculation(user_input, extracted_info)
+            elif request_type == 'event_relative':
+                print("DEBUG: Routing to event_relative")
+                response = self._handle_event_relative(user_input, extracted_info)
             else:
-                response = self._handle_general_input(user_input, extracted_info)
+                # Handle as normal simple request
+                print("DEBUG: Routing to simple_request")
+                response = self._handle_simple_request(user_input, extracted_info)
             
             # Add turn to conversation history
             self.conversation.add_turn(user_input, response, extracted_info)
-            
             return response
             
         except Exception as e:
-            logger.error(f"Error processing user input: {e}")
+            logger.error(f"Error processing: {e}")
+            import traceback
+            traceback.print_exc()
             return "I'm sorry, I had trouble understanding that. Could you please rephrase?"
+
+    def _handle_slot_search(self, user_input: str, extracted_info: Dict) -> str:
+        """Handle slot selection or modification"""
+        print(f"DEBUG: _handle_slot_search called with: {user_input}")
+        
+        user_lower = user_input.lower()
+        
+        # FIXED: Better slot selection detection - only trigger on ACTUAL selection words
+        # Exclude words that are part of scheduling requests
+        scheduling_words = ['find', 'schedule', 'book', 'meeting', 'slot', 'time', 'tomorrow', 'morning', 'afternoon', 'evening']
+        
+        # Check if this is a pure selection (numbers or position words without scheduling words)
+        selection_words = ['first', 'second', 'third', '1', '2', '3', 'one', 'two', 'three']
+        confirmation_words = ['yes', 'that works', 'sounds good', 'perfect', 'ok', 'okay']
+        
+        # Only treat as selection if:
+        # 1. It contains selection/confirmation words AND
+        # 2. It doesn't contain scheduling words (like "find", "schedule")
+        has_selection_words = any(word in user_lower for word in selection_words + confirmation_words)
+        has_scheduling_words = any(word in user_lower for word in scheduling_words)
+        
+        print(f"DEBUG: Has selection words: {has_selection_words}")
+        print(f"DEBUG: Has scheduling words: {has_scheduling_words}")
+        
+        if has_selection_words and not has_scheduling_words:
+            print("DEBUG: Treating as slot selection")
+            return self._handle_slot_selection(user_input)
+        
+        # Check if user wants to modify search
+        elif any(word in user_lower for word in ['different', 'other', 'alternative', 'change']):
+            print("DEBUG: Detected search modification request")
+            return self._search_and_present_slots(suggest_alternatives=True)
+        
+        # Otherwise, treat as new preferences or search request
+        else:
+            print("DEBUG: Treating as new search request")
+            # If they're asking for something specific (like "find me a slot"), search directly
+            if any(word in user_lower for word in ['find', 'schedule', 'book', 'slot']):
+                print("DEBUG: Direct search request detected")
+                return self._search_and_present_slots()
+            else:
+                print("DEBUG: Treating as preferences update")
+                return self._handle_preferences_collection(user_input, extracted_info)
+                
+    def _handle_simple_request(self, user_input: str, extracted_info: Dict) -> str:
+        """Handle simple scheduling requests like 'tomorrow morning'"""
+        print(f"DEBUG: _handle_simple_request called with: {user_input}")
+        print(f"DEBUG: Extracted info: {extracted_info}")
+        
+        # Enhanced duration extraction
+        duration = extracted_info.get('duration_minutes')
+        if duration:
+            self.conversation.meeting_context['duration_minutes'] = duration
+            print(f"DEBUG: Set duration to {duration}")
+        
+        # Enhanced time parsing for "tomorrow"
+        preferred_days = extracted_info.get('preferred_days', [])
+        preferred_times = extracted_info.get('preferred_times', [])
+        
+        print(f"DEBUG: Preferred days: {preferred_days}")
+        print(f"DEBUG: Preferred times: {preferred_times}")
+        
+        # FIXED: Handle "tomorrow" properly
+        if 'tomorrow' in preferred_days:
+            tomorrow_date = (datetime.now() + timedelta(days=1)).date()
+            self.conversation.meeting_context['target_date'] = tomorrow_date
+            preferred_days.remove('tomorrow')
+            print(f"DEBUG: Set target_date to {tomorrow_date}")
+        
+        # Update context
+        if preferred_days:
+            self.conversation.meeting_context['preferred_days'] = preferred_days
+        if preferred_times:
+            self.conversation.meeting_context['preferred_times'] = preferred_times
+        
+        # Existing state logic
+        state = self.conversation.get_conversation_state()
+        print(f"DEBUG: Conversation state in simple_request: {state}")
+        
+        if state == "collecting_duration":
+            print("DEBUG: Going to duration_collection")
+            return self._handle_duration_collection(user_input, extracted_info)
+        elif state == "collecting_preferences":
+            print("DEBUG: Going to preferences_collection")
+            return self._handle_preferences_collection(user_input, extracted_info)
+        elif state == "searching_slots":
+            print("DEBUG: Going to slot_search")
+            return self._handle_slot_search(user_input, extracted_info)
+        else:
+            print("DEBUG: Going to general_input")
+            return self._handle_general_input(user_input, extracted_info)
+    
+    def _handle_requirement_change(self, user_input: str, extracted_info: Dict) -> str:
+        """Handle 'Actually, need full hour' type changes"""
+        modifications = extracted_info.get('modifications', {})
+        
+        if modifications.get('new_duration'):
+            new_duration = modifications['new_duration']
+            old_duration = self.conversation.meeting_context.get('duration_minutes')
+            self.conversation.meeting_context['duration_minutes'] = new_duration
+            
+            return f"No problem! I'll search for {new_duration}-minute slots instead. Let me find what's available..."
+        
+        return "I understand you want to make a change. Could you clarify what you'd like to modify?"
+    
+    def _handle_deadline_request(self, user_input: str, extracted_info: Dict) -> str:
+        """Handle 'before my flight Friday 6 PM' requests"""
+        temporal = extracted_info.get('temporal_info', {})
+        deadline = temporal.get('deadline', '')
+        
+        # Parse deadline (simplified for now)
+        if 'friday' in deadline.lower() and '6 pm' in deadline.lower():
+            # Calculate end time (Friday 6 PM minus buffer)
+            next_friday = self._get_next_weekday('friday')
+            deadline_time = datetime.combine(next_friday, datetime.min.time().replace(hour=18))
+            search_end = deadline_time - timedelta(minutes=30)  # 30 min buffer
+            
+            duration = extracted_info.get('duration_minutes', 45)
+            self.conversation.meeting_context['duration_minutes'] = duration
+            
+            # Search with deadline constraint
+            slots = self.calendar.find_free_slots(duration, datetime.now(pytz.UTC), search_end)
+            
+            if slots:
+                return self._format_slot_options(slots[:5], f"Perfect! Here are {duration}-minute slots that end before your Friday 6 PM flight:")
+            else:
+                return "I couldn't find any slots that end before your Friday flight. Would you like to try earlier in the week?"
+        
+        return "I understand you have a deadline, but I need more specific timing information. Could you clarify when exactly?"
+    
+    def _handle_date_calculation(self, user_input: str, extracted_info: Dict) -> str:
+        """Handle 'last weekday of month' requests"""
+        duration = extracted_info.get('duration_minutes', 60)
+        self.conversation.meeting_context['duration_minutes'] = duration
+        
+        # Calculate last weekday
+        last_day = self._calculate_last_weekday_of_month()
+        
+        # Store the calculated date
+        self.conversation.meeting_context['target_date'] = last_day
+        
+        return f"Perfect! I'll look for a {duration}-minute slot on {last_day.strftime('%A, %B %d')} - that's the last weekday of this month. Let me check what's available..."
+    
+    def _handle_event_relative(self, user_input: str, extracted_info: Dict) -> str:
+        """Handle 'after my Project Alpha meeting' requests"""
+        temporal = extracted_info.get('temporal_info', {})
+        reference_event = temporal.get('reference_event', '')
+        
+        # Extract search terms
+        search_terms = self._extract_calendar_search_terms(reference_event)
+        print(f"🔍 Looking for: {search_terms}")
+        
+        found_event = self.calendar.find_event_by_reference(search_terms)
+        
+        if found_event:
+            return f"I found your {search_terms} event. Let me find available times after that..."
+        else:
+            return f"I couldn't find the '{search_terms}' event in your calendar. Could you check the name or try describing it differently?"
     
     def _handle_duration_collection(self, user_input: str, extracted_info: Dict) -> str:
         """Handle collecting meeting duration"""
@@ -216,7 +377,7 @@ class SmartScheduler:
             return "I'd be happy to help you schedule a meeting. How long should the meeting be? You can say something like '1 hour' or '30 minutes'."
     
     def _handle_preferences_collection(self, user_input: str, extracted_info: Dict) -> str:
-        """Handle collecting time preferences - FIXED"""
+        """Handle collecting time preferences"""
         
         # Parse time preferences using the enhanced parser
         preferences = self.time_parser.parse_time_preference(user_input)
@@ -234,7 +395,7 @@ class SmartScheduler:
             current_constraints = self.conversation.meeting_context.get('constraints', [])
             self.conversation.meeting_context['constraints'] = list(set(current_constraints + preferences['constraints']))
         
-        # CRITICAL FIX: Store relative dates
+        # Store relative dates
         if preferences.get('relative_dates'):
             self.conversation.meeting_context['relative_dates'] = preferences['relative_dates']
         
@@ -249,20 +410,66 @@ class SmartScheduler:
         
         # Search for available slots
         return self._search_and_present_slots()
-    
-    def _handle_slot_search(self, user_input: str, extracted_info: Dict) -> str:
-        """Handle slot selection or modification"""
-        # Check if user is selecting a slot
-        if any(word in user_input.lower() for word in ['first', 'second', 'third', '1', '2', '3', 'yes', 'that works']):
-            return self._handle_slot_selection(user_input)
+
+    def _handle_slot_selection(self, user_input: str) -> str:
+        """Handle user selecting a time slot"""
+        available_slots = self.conversation.meeting_context.get('available_slots', [])
         
-        # Check if user wants to modify search
-        elif any(word in user_input.lower() for word in ['different', 'other', 'alternative', 'change']):
-            return self._search_and_present_slots(suggest_alternatives=True)
+        if not available_slots:
+            # FIXED: If no slots, search for them instead of saying we don't have any
+            print("DEBUG: No slots available, searching...")
+            
+            # Check if we have enough info to search
+            duration = self.conversation.meeting_context.get('duration_minutes')
+            if duration:
+                print(f"DEBUG: Have duration {duration}, searching for slots")
+                return self._search_and_present_slots()
+            else:
+                print("DEBUG: No duration, asking for it")
+                return "I need to know how long the meeting should be. How many minutes would you like?"
         
-        # Otherwise, treat as new preferences
+        # Parse selection (rest of existing logic)
+        selection_index = None
+        user_lower = user_input.lower()
+        
+        # Check for number selection
+        for i in range(1, len(available_slots) + 1):
+            if str(i) in user_input or self._number_to_word(i) in user_lower:
+                selection_index = i - 1
+                break
+        
+        # Check for position words
+        if 'first' in user_lower:
+            selection_index = 0
+        elif 'second' in user_lower:
+            selection_index = 1
+        elif 'third' in user_lower:
+            selection_index = 2
+        
+        if selection_index is not None and 0 <= selection_index < len(available_slots):
+            selected_slot = available_slots[selection_index]
+            
+            # Show booking indicator
+            if self.voice_mode:
+                print("📅 Creating calendar event...")
+                time.sleep(1)
+            
+            # Create the calendar event
+            event_title = f"Meeting ({self.conversation.meeting_context['duration_minutes']} min)"
+            event_id = self.calendar.create_event(
+                title=event_title,
+                start_time=selected_slot['start'],
+                end_time=selected_slot['end'],
+                description="Scheduled via Smart Scheduler"
+            )
+            
+            if event_id:
+                self.conversation.meeting_context['confirmed_slot'] = selected_slot
+                return f"Perfect! I've scheduled your meeting for {selected_slot['formatted_time']}. The meeting has been added to your calendar."
+            else:
+                return "I had trouble creating the calendar event. Would you like to try a different time slot?"
         else:
-            return self._handle_preferences_collection(user_input, extracted_info)
+            return "I didn't understand which option you'd like. Could you please say the number (like '1' or 'first') or try again?"
     
     def _handle_general_input(self, user_input: str, extracted_info: Dict) -> str:
         """Handle general conversation input"""
@@ -278,88 +485,79 @@ class SmartScheduler:
         return self.llm_client.generate_response(context, [], user_input)
     
     def _search_and_present_slots(self, suggest_alternatives: bool = False) -> str:
-        """Search for available slots and present them to user - FIXED"""
+        """Search for available slots and present them to user"""
         try:
             duration = self.conversation.meeting_context['duration_minutes']
             if not duration:
                 return "I need to know the meeting duration first. How long should the meeting be?"
             
-            # Show search indicator
             if self.voice_mode:
                 print("🔍 Searching your calendar...")
                 time.sleep(1)
             
-            # FIXED: Better date range logic
+            # Get preferences INCLUDING target_date
             preferences = {
                 'days': self.conversation.meeting_context.get('preferred_days', []),
                 'times': self.conversation.meeting_context.get('preferred_times', []),
                 'constraints': self.conversation.meeting_context.get('constraints', []),
-                'relative_dates': self.conversation.meeting_context.get('relative_dates', [])
+                'target_date': self.conversation.meeting_context.get('target_date')
             }
             
-            # Determine date range based on preferences
-            if preferences.get('relative_dates'):
-                # If they said "tomorrow", search only tomorrow
-                start_date = datetime.now(pytz.UTC)
-                for rd in preferences['relative_dates']:
-                    if rd.get('target_date'):
-                        target_date = rd['target_date']
-                        start_date = datetime.combine(target_date, datetime.min.time())
-                        start_date = pytz.UTC.localize(start_date)
-                        end_date = start_date + timedelta(days=1)
-                        break
+            # Determine date range
+            if preferences.get('target_date'):
+                target_date = preferences['target_date']
+                start_date = datetime.combine(target_date, datetime.min.time())
+                start_date = pytz.UTC.localize(start_date)
+                end_date = start_date + timedelta(days=1)
+                include_weekends = True
+                
+                preferred_times = preferences.get('times', [])
+                if 'morning' in preferred_times:
+                    working_hours = (9, 12)  # 9 AM to 12 PM for morning
+                elif 'afternoon' in preferred_times:
+                    working_hours = (12, 18)  # 12 PM to 6 PM for afternoon  
+                elif 'evening' in preferred_times:
+                    working_hours = (18, 22)  # 6 PM to 10 PM for evening
                 else:
-                    # Default range
-                    end_date = start_date + timedelta(days=14)
-            else:
-                # Default range
+                    working_hours = (9, 22)  # Full day 9 AM to 10 PM
+
+            else:   
                 start_date = datetime.now(pytz.UTC)
                 end_date = start_date + timedelta(days=14)
+                include_weekends = False 
+                working_hours = (9, 17)
             
             print(f"DEBUG: Searching from {start_date.date()} to {end_date.date()}")
+            print(f"DEBUG: Include weekends: {include_weekends}")
             
-            # Get available slots
-            all_slots = self.calendar.find_free_slots(duration, start_date, end_date)
+            # FIXED: Always call with include_weekends parameter since your calendar supports it
+            all_slots = self.calendar.find_free_slots(
+                duration, 
+                start_date, 
+                end_date, 
+                working_hours=working_hours,  
+                include_weekends=include_weekends
+            )
             
-            if not all_slots:
-                return "I'm sorry, I couldn't find any available slots in the specified time range. Would you like me to check a different time period?"
+            print(f"DEBUG: Found {len(all_slots)} total slots before filtering")
             
-            print(f"DEBUG: Found {len(all_slots)} total slots")
-            
-            # Filter by preferences using the FIXED method
             filtered_slots = CalendarUtils.filter_slots_by_preferences(all_slots, preferences)
             
-            if not filtered_slots:
-                # Suggest alternatives
-                if suggest_alternatives:
-                    # Show some slots from the next day or different times
-                    alternative_slots = all_slots[:5]  # Just show first 5 available
-                    intro = "I couldn't find slots matching your exact preferences, but here are some alternatives:"
+            print(f"DEBUG: Found {len(filtered_slots)} slots after filtering")
+            
+            if filtered_slots:
+                return self._format_slot_options(filtered_slots[:5], "Great! I found these available times:")
+            else:
+                if all_slots:
+                    return f"I found {len(all_slots)} available slots, but none match your preferences for {target_date.strftime('%A, %B %d') if preferences.get('target_date') else 'your selected timeframe'}. Would you like to see all available options or try different timing?"
                 else:
-                    # First time, suggest nearby alternatives intelligently
-                    tomorrow_date = (datetime.now() + timedelta(days=1)).date()
-                    afternoon_slots = [s for s in all_slots if s['start'].date() == tomorrow_date and 12 <= s['start'].hour < 18]
-                    
-                    if afternoon_slots:
-                        intro = "I couldn't find morning slots tomorrow, but I found these afternoon options:"
-                        alternative_slots = afternoon_slots[:3]
-                    else:
-                        # Show next day options
-                        next_day_slots = [s for s in all_slots if s['start'].date() > tomorrow_date]
-                        intro = "Tomorrow morning is busy, but here are some options for the next few days:"
-                        alternative_slots = next_day_slots[:5]
+                    return "I couldn't find any available slots in the specified timeframe. Would you like to try a different day or time?"
                 
-                if alternative_slots:
-                    return self._format_slot_options(alternative_slots, intro)
-                else:
-                    return "I'm sorry, I couldn't find any suitable slots. Would you like to try different preferences?"
-            
-            return self._format_slot_options(filtered_slots[:5], "Great! I found these available times:")
-            
         except Exception as e:
             logger.error(f"Error searching for slots: {e}")
+            import traceback
+            traceback.print_exc()
             return "I'm having trouble accessing the calendar right now. Could you please try again in a moment?"
-
     
     def _format_slot_options(self, slots: List[Dict], intro: str) -> str:
         """Format available slots for presentation with better readability"""
@@ -427,6 +625,35 @@ class SmartScheduler:
                 return "I had trouble creating the calendar event. Would you like to try a different time slot?"
         else:
             return "I didn't understand which option you'd like. Could you please say the number (like '1' or 'first') or try again?"
+    
+    def _get_next_weekday(self, day_name: str) -> datetime.date:
+        """Get next occurrence of weekday"""
+        days = {'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6}
+        target = days[day_name.lower()]
+        current = datetime.now().weekday()
+        days_ahead = target - current
+        if days_ahead <= 0:
+            days_ahead += 7
+        return (datetime.now() + timedelta(days=days_ahead)).date()
+
+    def _calculate_last_weekday_of_month(self) -> datetime.date:
+        """Calculate last weekday of current month"""
+        today = datetime.now().date()
+        if today.month == 12:
+            last_day = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+        else:
+            last_day = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+        
+        while last_day.weekday() > 4:  # Go back to find weekday
+            last_day -= timedelta(days=1)
+        return last_day
+    
+    def _extract_calendar_search_terms(self, reference_event: str) -> str:
+        """Extract search terms from event reference"""
+        import re
+        words = re.findall(r'\b\w+\b', reference_event.lower())
+        important = [w for w in words if w not in ['my', 'the', 'a', 'meeting', 'event'] and len(w) > 2]
+        return ' '.join(important[:2])
     
     def _number_to_word(self, num: int) -> str:
         """Convert number to word"""

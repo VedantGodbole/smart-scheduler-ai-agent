@@ -106,6 +106,11 @@ class ConversationManager:
         else:
             return "searching_slots"
     
+    def set_target_date(self, target_date):
+        """Set specific target date for scheduling"""
+        self.meeting_context['target_date'] = target_date
+        logger.info(f"Set target date: {target_date}")
+
     def reset_context(self):
         """Reset conversation context for new meeting"""
         self.meeting_context = {
@@ -114,6 +119,7 @@ class ConversationManager:
             'preferred_times': [],
             'constraints': [],
             'confirmed_slot': None,
-            'status': 'initial'
+            'status': 'initial',
+            'target_date': None  # ADD this line
         }
         logger.info("Reset conversation context")

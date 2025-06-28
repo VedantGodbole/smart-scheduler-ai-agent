@@ -13,7 +13,7 @@ class SpeechToText:
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source)
     
-    def listen_and_transcribe(self, timeout: float = 5.0, phrase_time_limit: float = 10.0) -> Optional[str]:
+    def listen_and_transcribe(self, timeout: float = 5.0, phrase_time_limit: float = 20.0) -> Optional[str]:
         """Listen to microphone and transcribe speech"""
         try:
             logger.info("Listening for speech...")

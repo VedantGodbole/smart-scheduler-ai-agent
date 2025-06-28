@@ -54,12 +54,21 @@ class GoogleCalendarClient:
             logger.error(f"Error retrieving events: {e}")
             return []
     
+    # Update your find_free_slots method in google_calendar.py with better debugging:
+
     def find_free_slots(self, duration_minutes: int, 
-                       start_date: datetime, 
-                       end_date: datetime,
-                       working_hours: tuple = (9, 17)) -> List[Dict]:
+                start_date: datetime, 
+                end_date: datetime,
+                working_hours: tuple = (9, 17),
+                include_weekends: bool = True) -> List[Dict]: 
         """Find free time slots of specified duration"""
         try:
+            print(f"DEBUG: find_free_slots called with:")
+            print(f"  - duration: {duration_minutes} minutes")
+            print(f"  - start_date: {start_date}")
+            print(f"  - end_date: {end_date}")
+            print(f"  - include_weekends: {include_weekends}")
+            
             # Get existing events
             events = self.get_events(start_date, end_date)
             
@@ -67,87 +76,148 @@ class GoogleCalendarClient:
             current_date = start_date.date()
             
             while current_date <= end_date.date():
-                # Skip weekends
-                if current_date.weekday() < 5:  # Monday = 0, Friday = 4
+                print(f"DEBUG: Processing date {current_date}, weekday: {current_date.weekday()}")
+                
+                if include_weekends or current_date.weekday() < 5:  
+                    print(f"DEBUG: Including date {current_date}")
                     day_slots = self._find_day_free_slots(
                         current_date, events, duration_minutes, working_hours
                     )
+                    print(f"DEBUG: Found {len(day_slots)} slots for {current_date}")
                     free_slots.extend(day_slots)
+                else:
+                    print(f"DEBUG: Skipping weekend date {current_date}")
                 
                 current_date += timedelta(days=1)
             
             logger.info(f"Found {len(free_slots)} free slots")
+            print(f"DEBUG: Total slots found: {len(free_slots)}")
+            
+            # Print first few slots for debugging
+            for i, slot in enumerate(free_slots[:3]):
+                print(f"DEBUG: Slot {i+1}: {slot['formatted_time']}")
+            
             return free_slots
             
         except Exception as e:
             logger.error(f"Error finding free slots: {e}")
+            import traceback
+            traceback.print_exc()
             return []
-    
+
     def _find_day_free_slots(self, date, events: List[Dict], 
-                           duration_minutes: int, working_hours: tuple) -> List[Dict]:
-        """Find free slots for a specific day"""
+                    duration_minutes: int, working_hours: tuple) -> List[Dict]:
+        """Find free slots for a specific day - FIXED timezone handling"""
         slots = []
         start_hour, end_hour = working_hours
         
-        # Create time slots for the day
+        print(f"DEBUG: _find_day_free_slots for {date}")
+        print(f"DEBUG: Working hours: {start_hour}:00 to {end_hour}:00")
+        
+        # FIXED: Create time slots with consistent timezone handling
         day_start = datetime.combine(date, datetime.min.time().replace(hour=start_hour))
         day_start = self.timezone.localize(day_start)
         day_end = datetime.combine(date, datetime.min.time().replace(hour=end_hour))
         day_end = self.timezone.localize(day_end)
         
-        # Get events for this day
+        print(f"DEBUG: Day range: {day_start} to {day_end}")
+        
+        # FIXED: Convert all events to UTC for consistent comparison
         day_events = []
         for event in events:
             event_start = self._parse_event_time(event.get('start', {}))
             event_end = self._parse_event_time(event.get('end', {}))
             
             if event_start and event_end:
-                if event_start.date() == date:
+                # Convert to UTC if not already
+                if event_start.tzinfo != pytz.UTC:
+                    event_start = event_start.astimezone(pytz.UTC)
+                if event_end.tzinfo != pytz.UTC:
+                    event_end = event_end.astimezone(pytz.UTC)
+                    
+                # Check if event overlaps with our day
+                if event_start.date() == date or event_end.date() == date:
                     day_events.append({
                         'start': event_start,
                         'end': event_end,
                         'summary': event.get('summary', 'Busy')
                     })
         
+        print(f"DEBUG: Found {len(day_events)} events for {date}")
+        for event in day_events:
+            print(f"DEBUG: Event: {event['start']} to {event['end']}")
+        
         # Sort events by start time
         day_events.sort(key=lambda x: x['start'])
         
-        # Find gaps between events
+        # FIXED: Find gaps with proper time ordering
         current_time = day_start
+        print(f"DEBUG: Starting from: {current_time}")
         
         for event in day_events:
+            print(f"DEBUG: Processing event: {event['start']} to {event['end']}")
+            
+            # Only consider events that intersect with our working hours
+            if event['end'] <= day_start or event['start'] >= day_end:
+                print(f"DEBUG: Event outside working hours, skipping")
+                continue
+                
+            # Adjust event times to working hours
+            event_start = max(event['start'], day_start)
+            event_end = min(event['end'], day_end)
+            
             # Check if there's a gap before this event
-            if (event['start'] - current_time).total_seconds() >= duration_minutes * 60:
+            if current_time < event_start:
+                gap_minutes = (event_start - current_time).total_seconds() / 60
+                print(f"DEBUG: Gap before event: {gap_minutes} minutes")
+                
+                if gap_minutes >= duration_minutes:
+                    slots.append({
+                        'start': current_time,
+                        'end': event_start,
+                        'duration_available': int(gap_minutes)
+                    })
+                    print(f"DEBUG: Added gap slot: {current_time} to {event_start}")
+            
+            current_time = max(current_time, event_end)
+            print(f"DEBUG: Updated current_time to: {current_time}")
+        
+        # FIXED: Check for slot after last event (ensure proper time ordering)
+        if current_time < day_end:
+            final_gap_minutes = (day_end - current_time).total_seconds() / 60
+            print(f"DEBUG: Final gap: {final_gap_minutes} minutes ({current_time} to {day_end})")
+            
+            if final_gap_minutes >= duration_minutes:
                 slots.append({
                     'start': current_time,
-                    'end': event['start'],
-                    'duration_available': int((event['start'] - current_time).total_seconds() / 60)
+                    'end': day_end,
+                    'duration_available': int(final_gap_minutes)
                 })
-            
-            current_time = max(current_time, event['end'])
+                print(f"DEBUG: Added final slot: {current_time} to {day_end}")
         
-        # Check for slot after last event
-        if (day_end - current_time).total_seconds() >= duration_minutes * 60:
-            slots.append({
-                'start': current_time,
-                'end': day_end,
-                'duration_available': int((day_end - current_time).total_seconds() / 60)
-            })
+        print(f"DEBUG: Total gaps found: {len(slots)}")
         
-        # Filter slots that can accommodate the meeting duration
+        # Generate specific time slots within gaps
         valid_slots = []
-        for slot in slots:
+        for i, slot in enumerate(slots):
+            print(f"DEBUG: Processing gap {i+1}: {slot['start']} to {slot['end']} ({slot['duration_available']} min)")
+            
             if slot['duration_available'] >= duration_minutes:
-                # Create specific time slots within this gap
                 slot_start = slot['start']
-                while (slot['end'] - slot_start).total_seconds() >= duration_minutes * 60:
+                slot_end = slot['end']
+                
+                # FIXED: Create hourly slots within the gap, respecting gap boundaries
+                while slot_start + timedelta(minutes=duration_minutes) <= slot_end:
+                    meeting_end = slot_start + timedelta(minutes=duration_minutes)
                     valid_slots.append({
                         'start': slot_start,
-                        'end': slot_start + timedelta(minutes=duration_minutes),
-                        'formatted_time': self._format_time_slot(slot_start, slot_start + timedelta(minutes=duration_minutes))
+                        'end': meeting_end,
+                        'formatted_time': self._format_time_slot(slot_start, meeting_end)
                     })
-                    slot_start += timedelta(hours=1)  # Check hourly intervals
+                    print(f"DEBUG: Created slot: {slot_start.strftime('%I:%M %p')} to {meeting_end.strftime('%I:%M %p')}")
+                    slot_start += timedelta(hours=1)  # Move to next hour
         
+        print(f"DEBUG: Total valid slots created: {len(valid_slots)}")
         return valid_slots
     
     def _parse_event_time(self, time_dict: Dict) -> Optional[datetime]:
@@ -161,15 +231,13 @@ class GoogleCalendarClient:
         return None
     
     def _format_time_slot(self, start: datetime, end: datetime) -> str:
-        """Format time slot for display"""
-        start_local = start.astimezone()
-        end_local = end.astimezone()
+        """Format time slot for display in UTC"""
+        # Don't convert timezone - keep as UTC
+        date_str = start.strftime('%A, %B %d')
+        start_time = start.strftime('%I:%M %p').lstrip('0')
+        end_time = end.strftime('%I:%M %p').lstrip('0')
         
-        date_str = start_local.strftime('%A, %B %d')
-        start_time = start_local.strftime('%I:%M %p').lstrip('0')
-        end_time = end_local.strftime('%I:%M %p').lstrip('0')
-        
-        return f"{date_str} from {start_time} to {end_time}"
+        return f"{date_str} from {start_time} to {end_time} UTC"
     
     def create_event(self, title: str, start_time: datetime, 
                     end_time: datetime, description: str = "") -> Optional[str]:
