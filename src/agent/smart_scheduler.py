@@ -13,6 +13,7 @@ from src.agent.conversation_manager import ConversationManager
 from src.utils.time_parser import TimeParser
 from src.utils.logger import setup_logger
 from config.settings import settings
+from src.calendar_integration.google_calendar_oauth import create_event, list_events
 
 logger = setup_logger(__name__)
 
@@ -120,6 +121,18 @@ class SmartScheduler:
             time.sleep(0.5)
             self.tts.speak(response, block=True)  # Wait for speech to complete
     
+    def schedule_meeting(self, summary, start_dt, duration_minutes, description=""):
+        end_dt = start_dt + timedelta(minutes=duration_minutes)
+        event = create_event(summary, start_dt, end_dt, description)
+        return f"✅ Event '{event.get('summary')}' scheduled at {event.get('start').get('dateTime')}"
+
+    def upcoming_meetings(self, count=5):
+        events = list_events(max_results=count)
+        if not events:
+            return "No upcoming events found."
+        return "\n".join([f"{e['summary']} at {e['start']['dateTime']}" for e in events])
+
+
     def _pause_for_user_processing(self):
         """Add appropriate pause for user to process and respond"""
         if self.voice_mode:
