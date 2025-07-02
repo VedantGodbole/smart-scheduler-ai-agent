@@ -1,20 +1,21 @@
-import openai
+# src/llm/openai_client.py
 import json
 from typing import List, Dict, Optional
+from openai import OpenAI
 from config.settings import settings
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-class OpenAIClient:  # SAME NAME
+class OpenAIClient:
     def __init__(self):
-        openai.api_key = settings.OPENAI_API_KEY
-        self.client = openai.OpenAI()
+        # Updated for latest OpenAI SDK (v1.50+)
+        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
     
     def get_completion(self, messages: List[Dict[str, str]], 
                       temperature: float = 0.7, 
-                      max_tokens: int = 500) -> Optional[str]:  # Just increased token limit
-        """Get completion from OpenAI"""
+                      max_tokens: int = 500) -> Optional[str]:
+        """Get completion from OpenAI using latest SDK"""
         try:
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -28,13 +29,12 @@ class OpenAIClient:  # SAME NAME
             return None
     
     def extract_meeting_info(self, user_input: str, conversation_context: str) -> Dict:
-        """ENHANCED: Extract meeting information with advanced understanding"""
+        """Extract meeting information with advanced understanding"""
         
-        # MUCH SMARTER PROMPT
         system_prompt = """You are an expert meeting scheduling assistant with advanced natural language understanding. 
         Extract ALL relevant scheduling information from user input, including complex temporal relationships and constraints.
 
-        Return a JSON object with this structure (ADD new fields but keep existing ones):
+        Return a JSON object with this structure:
         {
             "duration_minutes": null or number,
             "preferred_days": [],
@@ -44,7 +44,6 @@ class OpenAIClient:  # SAME NAME
             "needs_clarification": boolean,
             "clarification_question": "string or null",
             
-            // NEW ENHANCED FIELDS:
             "temporal_relationships": {
                 "type": null or "before_event|after_event|relative_date|deadline_based",
                 "reference_event": "string description of referenced event",
@@ -69,27 +68,19 @@ class OpenAIClient:  # SAME NAME
 
         Deadline-based:
         - "45 minutes before my flight on Friday at 6 PM" → 
-        {"duration_minutes": 45, "temporal_relationships": {"type": "deadline_based", "reference_event": "flight on Friday at 6 PM", "deadline": "Friday 6 PM"}}
+          {"duration_minutes": 45, "temporal_relationships": {"type": "deadline_based", "reference_event": "flight on Friday at 6 PM", "deadline": "Friday 6 PM"}}
 
         Event-relative:
         - "quick chat a day or two after Project Alpha Kick-off" → 
-        {"duration_minutes": 15, "temporal_relationships": {"type": "after_event", "reference_event": "Project Alpha Kick-off", "time_buffer_minutes": 1440}, "needs_calendar_lookup": true}
+          {"duration_minutes": 15, "temporal_relationships": {"type": "after_event", "reference_event": "Project Alpha Kick-off", "time_buffer_minutes": 1440}, "needs_calendar_lookup": true}
 
         Calculated dates:
         - "1-hour meeting for the last weekday of this month" → 
-        {"duration_minutes": 60, "temporal_relationships": {"type": "relative_date", "reference_event": "last weekday of month"}}
+          {"duration_minutes": 60, "temporal_relationships": {"type": "relative_date", "reference_event": "last weekday of month"}}
 
         Requirement changes:
         - "Actually, my colleague needs to join, so we'll need a full hour" → 
-        {"intent": "change_requirements", "modifications": {"new_duration": 60, "is_requirement_change": true}, "context_clues": {"attendees_mentioned": true}}
-
-        Ambiguous requests:
-        - "Let's schedule our usual sync-up" → 
-        {"context_clues": {"meeting_type": "usual"}, "needs_calendar_lookup": true, "clarification_question": "What duration do you typically use for sync-ups?"}
-
-        Multi-constraint:
-        - "I'm free next week, but not too early in the morning and not on Wednesday" → 
-        {"preferred_times": ["not_early"], "constraints": ["not_wednesday"], "context_clues": {"flexibility": "flexible"}}
+          {"intent": "change_requirements", "modifications": {"new_duration": 60, "is_requirement_change": true}, "context_clues": {"attendees_mentioned": true}}
 
         Pattern recognition:
         - "quick" = 15 minutes, "chat" = 15 minutes, "sync" = 30 minutes, "usual" = needs lookup
@@ -110,16 +101,17 @@ class OpenAIClient:  # SAME NAME
                 result['temporal_relationships'] = {}
             if 'context_clues' not in result:
                 result['context_clues'] = {}
+            if 'modifications' not in result:
+                result['modifications'] = {}
             return result
         except json.JSONDecodeError:
             logger.error(f"Failed to parse JSON response: {response}")
-            return self._fallback_extraction(user_input)  # Keep existing fallback
+            return self._fallback_extraction(user_input)
     
     def generate_response(self, context: str, available_slots: List[str], 
                          user_input: str) -> str:
-        """ENHANCED: Generate sophisticated, contextual responses"""
+        """Generate sophisticated, contextual responses"""
         
-        # MUCH SMARTER RESPONSE PROMPT
         system_prompt = """You are a sophisticated AI scheduling assistant capable of handling complex, ambiguous, and changing requirements with human-like intelligence.
 
         CORE PRINCIPLES:
@@ -157,14 +149,14 @@ class OpenAIClient:  # SAME NAME
         slots_text = "\n".join(available_slots) if available_slots else "No slots currently available"
                 
         messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"""
-            Context: {context}
-            Available slots: {slots_text}
-            User input: {user_input}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"""
+Context: {context}
+Available slots: {slots_text}
+User input: {user_input}
 
-            Generate an intelligent, contextual response:
-            """}
+Generate an intelligent, contextual response:
+"""}
         ]
         
         return self.get_completion(messages, max_tokens=400) or "I'm having trouble processing that. Could you please try again?"

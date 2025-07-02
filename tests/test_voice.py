@@ -1,13 +1,14 @@
 import unittest
 from unittest.mock import Mock, patch, MagicMock
-from src.voice.speech_to_text import SpeechToText
+from src.voice.deepgram_stt import DeepgramSTT
+# from src.voice.speech_to_text import SpeechToText
 from src.voice.text_to_speech import TextToSpeech
 
 class TestSpeechToText(unittest.TestCase):
     def setUp(self):
-        with patch('speech_recognition.Microphone'), \
-             patch('speech_recognition.Recognizer'):
-            self.stt = SpeechToText()
+        with patch('sounddevice.rec'), \
+             patch('sounddevice.wait'):
+            self.stt = DeepgramSTT()
     
     @patch('speech_recognition.Recognizer.listen')
     @patch('speech_recognition.Recognizer.recognize_google')

@@ -1,26 +1,27 @@
-openai==1.12.0
-google-api-python-client==2.118.0
-google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.0
-speechrecognition==3.10.1
-pyttsx3==2.90
-pyaudio==0.2.13
-python-dotenv==1.0.1
-pytest==8.0.0
-python-dateutil==2.8.2
-pytz==2024.1
+# Updated requirements.txt with latest compatible versions
 
-# openai>=1.50.0
-# google-api-python-client>=2.140.0
-# google-auth-httplib2>=0.2.0
-# google-auth-oauthlib>=1.2.0
-# speechrecognition>=3.10.1
-# pyttsx3>=2.90
-# pyaudio>=0.2.13
-# python-dotenv>=1.0.1
-# pytest>=8.0.0
-# python-dateutil>=2.8.2
-# pytz>=2024.1
-# typing_extensions
-# requests
-# urllib3
+# Core dependencies - upgraded to latest
+openai>=1.50.0
+google-api-python-client>=2.140.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
+python-dotenv>=1.0.1
+python-dateutil>=2.8.2
+pytz>=2024.1
+
+# Voice processing - upgraded
+speechrecognition>=3.10.1
+pyttsx3>=2.90
+pyaudio>=0.2.13
+
+# NEW: Deepgram integration (requires Python 3.10+)
+deepgram-sdk>=4.5.0
+sounddevice>=0.4.6
+
+# Development and testing
+pytest>=8.0.0
+
+# Additional dependencies for enhanced functionality
+typing_extensions>=4.9.0
+requests>=2.31.0
+urllib3>=2.0.0

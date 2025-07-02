@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 import pytz
 
 from src.llm.openai_client import OpenAIClient
-from src.voice.speech_to_text import SpeechToText
+# from src.voice.speech_to_text import SpeechToText
 from src.voice.text_to_speech import TextToSpeech
+from src.voice.deepgram_stt import DeepgramSTT
 from src.calendar_integration.google_calendar import GoogleCalendarClient
 from src.calendar_integration.calendar_utils import CalendarUtils
 from src.agent.conversation_manager import ConversationManager
@@ -18,7 +19,8 @@ logger = setup_logger(__name__)
 class SmartScheduler:
     def __init__(self):
         self.llm_client = OpenAIClient()
-        self.stt = SpeechToText()
+        # self.stt = SpeechToText()
+        self.stt = DeepgramSTT()
         self.tts = TextToSpeech()
         self.calendar = GoogleCalendarClient()
         self.conversation = ConversationManager()
