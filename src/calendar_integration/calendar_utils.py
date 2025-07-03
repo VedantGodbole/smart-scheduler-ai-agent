@@ -39,13 +39,18 @@ class CalendarUtils:
             if preferred_times:
                 matches_time = False
                 for pref in preferred_times:
-                    if pref == 'morning' and 6 <= slot_hour < 12:
+                    pref_lower = str(pref).lower()
+                    if 'morning' in pref_lower:
+                        if 'late' in pref_lower and 10 <= slot_hour < 12:
+                            matches_time = True
+                            break
+                        elif 'late' not in pref_lower and 9 <= slot_hour < 12:
+                            matches_time = True
+                            break
+                    elif 'afternoon' in pref_lower and 12 <= slot_hour < 18:
                         matches_time = True
                         break
-                    elif pref == 'afternoon' and 12 <= slot_hour < 18:
-                        matches_time = True
-                        break
-                    elif pref == 'evening' and 18 <= slot_hour < 22:
+                    elif 'evening' in pref_lower and 18 <= slot_hour < 22:
                         matches_time = True
                         break
                 

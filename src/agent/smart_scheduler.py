@@ -2,6 +2,7 @@ import time
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 import pytz
+import re
 
 from src.llm.openai_client import OpenAIClient
 # from src.voice.speech_to_text import SpeechToText
@@ -174,7 +175,6 @@ class SmartScheduler:
             context = self.conversation.get_context_summary()
             extracted_info = self.llm_client.extract_meeting_info(user_input, context)
             
-            # DEBUG: Print what was extracted
             print(f"DEBUG: Extracted info: {extracted_info}")
             
             # Route based on request type
@@ -218,42 +218,37 @@ class SmartScheduler:
         
         user_lower = user_input.lower()
         
-        # FIXED: Better slot selection detection - only trigger on ACTUAL selection words
+        pure_selection_patterns = [
+            r'^(first|second|third|fourth|fifth)$',
+            r'^[1-5]$',
+            r'^(one|two|three|four|five)$',
+            r'^(yes|ok|okay|that works|sounds good|perfect)$'
+        ]
+
         # Exclude words that are part of scheduling requests
         scheduling_words = ['find', 'schedule', 'book', 'meeting', 'slot', 'time', 'tomorrow', 'morning', 'afternoon', 'evening']
+        duration_words = ['min', 'minute', 'minutes', 'hour', 'hours']
         
-        # Check if this is a pure selection (numbers or position words without scheduling words)
-        selection_words = ['first', 'second', 'third', '1', '2', '3', 'one', 'two', 'three']
-        confirmation_words = ['yes', 'that works', 'sounds good', 'perfect', 'ok', 'okay']
-        
-        # Only treat as selection if:
-        # 1. It contains selection/confirmation words AND
-        # 2. It doesn't contain scheduling words (like "find", "schedule")
-        has_selection_words = any(word in user_lower for word in selection_words + confirmation_words)
+        # Check if this is a pure selection (no scheduling or duration words)
+        is_pure_selection = any(re.match(pattern, user_lower.strip()) for pattern in pure_selection_patterns)
         has_scheduling_words = any(word in user_lower for word in scheduling_words)
+        has_duration_words = any(word in user_lower for word in duration_words)
         
-        print(f"DEBUG: Has selection words: {has_selection_words}")
+        print(f"DEBUG: Is pure selection: {is_pure_selection}")
         print(f"DEBUG: Has scheduling words: {has_scheduling_words}")
+        print(f"DEBUG: Has duration words: {has_duration_words}")
         
-        if has_selection_words and not has_scheduling_words:
+        # Only treat as slot selection if it's clearly a selection and no scheduling/duration context
+        if is_pure_selection and not has_scheduling_words and not has_duration_words:
             print("DEBUG: Treating as slot selection")
             return self._handle_slot_selection(user_input)
-        
-        # Check if user wants to modify search
         elif any(word in user_lower for word in ['different', 'other', 'alternative', 'change']):
             print("DEBUG: Detected search modification request")
             return self._search_and_present_slots(suggest_alternatives=True)
-        
-        # Otherwise, treat as new preferences or search request
         else:
+            # If they mention duration or scheduling, search for slots
             print("DEBUG: Treating as new search request")
-            # If they're asking for something specific (like "find me a slot"), search directly
-            if any(word in user_lower for word in ['find', 'schedule', 'book', 'slot']):
-                print("DEBUG: Direct search request detected")
-                return self._search_and_present_slots()
-            else:
-                print("DEBUG: Treating as preferences update")
-                return self._handle_preferences_collection(user_input, extracted_info)
+            return self._search_and_present_slots()
                 
     def _handle_simple_request(self, user_input: str, extracted_info: Dict) -> str:
         """Handle simple scheduling requests like 'tomorrow morning'"""
