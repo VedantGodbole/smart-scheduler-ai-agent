@@ -11,7 +11,7 @@ class Settings:
     DEEPGRAM_API_KEY = os.getenv('DEEPGRAM_API_KEY')
 
     # Google Calendar
-    GOOGLE_CREDENTIALS_PATH = 'credentials/google_credentials.json'
+    GOOGLE_CREDENTIALS_PATH = 'credentials/credentials.json'
     GOOGLE_CALENDAR_ID = os.getenv('GOOGLE_CALENDAR_ID', 'primary')
     
     # Voice Settings
