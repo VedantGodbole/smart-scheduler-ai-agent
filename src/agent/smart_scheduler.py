@@ -579,7 +579,10 @@ class SmartScheduler:
         for i, slot in enumerate(slots[:5], 1):
             response += f"{i}. {slot['formatted_time']}\n"
         
-        response += "\nWhich option works best for you? You can say the number (like 'one' or '1') or describe your choice (like 'the first one')."
+        if self.voice_mode:
+            response += "\nWhich option would you prefer? Just say the number, like 'two' or 'option three'."
+        else:
+            response += "\nWhich option works best for you? You can type the number (1, 2, 3...) or describe your choice."
         
         # Store slots for selection
         self.conversation.meeting_context['available_slots'] = slots[:5]
