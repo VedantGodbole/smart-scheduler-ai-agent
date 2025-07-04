@@ -120,6 +120,8 @@ class ConversationManager:
             'constraints': [],
             'confirmed_slot': None,
             'status': 'initial',
-            'target_date': None  # ADD this line
+            'target_date': None,
+            'event_title': None,
+            'available_slots': []
         }
         logger.info("Reset conversation context")

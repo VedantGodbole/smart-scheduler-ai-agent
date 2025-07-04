@@ -40,10 +40,12 @@ class OpenAIClient:
             "preferred_days": [],
             "preferred_times": [],
             "constraints": [],
-            "intent": "schedule|modify|cancel|clarify|change_requirements",
+            "intent": "schedule|modify|cancel|clarify|change_requirements|select_slot",
             "needs_clarification": boolean,
             "clarification_question": "string or null",        
-            "request_type": "simple|date_calculation|deadline_based|event_relative|requirement_change",
+            "request_type": "simple|date_calculation|deadline_based|event_relative|requirement_change|slot_selection",
+            "event_title": null or string,
+            "specific_time": null or string (in "HH:MM" format),
             
             "temporal_relationships": {
                 "type": null or "before_event|after_event|relative_date|deadline_based",
@@ -65,6 +67,30 @@ class OpenAIClient:
             "needs_calendar_lookup": boolean
         }
 
+        
+        CRITICAL SLOT SELECTION RULES:
+        If the user input matches ANY of these patterns, set request_type to "slot_selection" and intent to "select_slot":
+        - Single words: "first", "second", "third", "fourth", "fifth"
+        - Numbers: "1", "2", "3", "4", "5", "one", "two", "three", "four", "five"
+        - Choice phrases: "first choice", "second option", "option one", "option 1"
+        - Approval phrases: "first choice looks good", "the first one", "that works"
+        - Simple confirmations when options were presented: "yes", "ok", "okay"
+
+        EXAMPLES:
+    
+        Context: "Available slots shown"
+        User: "first" → {"request_type": "slot_selection", "intent": "select_slot"}
+        
+        Context: "Available slots shown"  
+        User: "first choice looks good" → {"request_type": "slot_selection", "intent": "select_slot"}
+        
+        Context: "Available slots shown"
+        User: "2" → {"request_type": "slot_selection", "intent": "select_slot"}
+        
+        Context: "Available slots shown"
+        User: "the second one" → {"request_type": "slot_selection", "intent": "select_slot"}
+
+    
         CRITICAL: Set "request_type" correctly:
         - "date_calculation" for: "last weekday of month", "first monday of next month", "last friday", etc.
         - "deadline_based" for: "before my flight", "before I leave", etc.

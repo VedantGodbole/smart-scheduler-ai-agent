@@ -178,13 +178,18 @@ class SmartScheduler:
             
             # Route based on request type
             request_type = extracted_info.get('request_type', 'simple')
+            intent = extracted_info.get('intent', '')
             print(f"DEBUG: Request type: {request_type}")
+            print(f"DEBUG: Intent: {intent}")
             
             # Check conversation state
             state = self.conversation.get_conversation_state()
             print(f"DEBUG: Conversation state: {state}")
             
-            if request_type == 'requirement_change':
+            if request_type == 'slot_selection' or intent == 'select_slot':
+                print("DEBUG: Routing DIRECTLY to slot_selection")
+                response = self._handle_slot_selection(user_input)
+            elif request_type == 'requirement_change':
                 print("DEBUG: Routing to requirement_change")
                 response = self._handle_requirement_change(user_input, extracted_info)
             elif request_type == 'deadline_based':
@@ -259,6 +264,12 @@ class SmartScheduler:
             self.conversation.meeting_context['duration_minutes'] = duration
             print(f"DEBUG: Set duration to {duration}")
         
+        # Store event title
+        event_title = extracted_info.get('event_title')
+        if event_title:
+            self.conversation.meeting_context['event_title'] = event_title
+            print(f"DEBUG: Set event title to {event_title}")
+
         # Enhanced time parsing for "tomorrow"
         preferred_days = extracted_info.get('preferred_days', [])
         preferred_times = extracted_info.get('preferred_times', [])
@@ -465,7 +476,8 @@ class SmartScheduler:
                 time.sleep(1)
             
             # Create the calendar event
-            event_title = f"Meeting ({self.conversation.meeting_context['duration_minutes']} min)"
+            meeting_context = self.conversation.meeting_context
+            event_title = meeting_context.get('event_title', f"Meeting ({meeting_context.get('duration_minutes', 30)} min)")
             event_id = self.calendar.create_event(
                 title=event_title,
                 start_time=selected_slot['start'],
