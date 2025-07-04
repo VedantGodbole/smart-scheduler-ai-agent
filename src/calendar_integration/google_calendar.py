@@ -107,14 +107,14 @@ class GoogleCalendarClient:
 
     def _find_day_free_slots(self, date, events: List[Dict], 
                     duration_minutes: int, working_hours: tuple) -> List[Dict]:
-        """Find free slots for a specific day - FIXED timezone handling"""
+        """Find free slots for a specific day """
         slots = []
         start_hour, end_hour = working_hours
         
         print(f"DEBUG: _find_day_free_slots for {date}")
         print(f"DEBUG: Working hours: {start_hour}:00 to {end_hour}:00")
         
-        # FIXED: Create time slots with consistent timezone handling
+        # Create time slots with consistent timezone handling
         day_start = datetime.combine(date, datetime.min.time().replace(hour=start_hour))
         day_start = self.timezone.localize(day_start)
         day_end = datetime.combine(date, datetime.min.time().replace(hour=end_hour))
@@ -122,7 +122,7 @@ class GoogleCalendarClient:
         
         print(f"DEBUG: Day range: {day_start} to {day_end}")
         
-        # FIXED: Convert all events to UTC for consistent comparison
+        # Convert all events to UTC for consistent comparison
         day_events = []
         for event in events:
             event_start = self._parse_event_time(event.get('start', {}))
@@ -150,7 +150,7 @@ class GoogleCalendarClient:
         # Sort events by start time
         day_events.sort(key=lambda x: x['start'])
         
-        # FIXED: Find gaps with proper time ordering
+        # Find gaps with proper time ordering
         current_time = day_start
         print(f"DEBUG: Starting from: {current_time}")
         
@@ -182,7 +182,7 @@ class GoogleCalendarClient:
             current_time = max(current_time, event_end)
             print(f"DEBUG: Updated current_time to: {current_time}")
         
-        # FIXED: Check for slot after last event (ensure proper time ordering)
+        # Check for slot after last event (ensure proper time ordering)
         if current_time < day_end:
             final_gap_minutes = (day_end - current_time).total_seconds() / 60
             print(f"DEBUG: Final gap: {final_gap_minutes} minutes ({current_time} to {day_end})")
@@ -206,7 +206,7 @@ class GoogleCalendarClient:
                 slot_start = slot['start']
                 slot_end = slot['end']
                 
-                # FIXED: Create hourly slots within the gap, respecting gap boundaries
+                # Create hourly slots within the gap, respecting gap boundaries
                 while slot_start + timedelta(minutes=duration_minutes) <= slot_end:
                     meeting_end = slot_start + timedelta(minutes=duration_minutes)
                     valid_slots.append({

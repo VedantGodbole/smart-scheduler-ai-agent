@@ -197,7 +197,6 @@ class SmartScheduler:
                 print("DEBUG: Routing to event_relative")
                 response = self._handle_event_relative(user_input, extracted_info)
             else:
-                # Handle as normal simple request
                 print("DEBUG: Routing to simple_request")
                 response = self._handle_simple_request(user_input, extracted_info)
             
@@ -267,7 +266,7 @@ class SmartScheduler:
         print(f"DEBUG: Preferred days: {preferred_days}")
         print(f"DEBUG: Preferred times: {preferred_times}")
         
-        # FIXED: Handle "tomorrow" properly
+        # Handle "tomorrow" properly
         if 'tomorrow' in preferred_days:
             tomorrow_date = (datetime.now() + timedelta(days=1)).date()
             self.conversation.meeting_context['target_date'] = tomorrow_date
@@ -346,7 +345,9 @@ class SmartScheduler:
         # Store the calculated date
         self.conversation.meeting_context['target_date'] = last_day
         
-        return f"Perfect! I'll look for a {duration}-minute slot on {last_day.strftime('%A, %B %d')} - that's the last weekday of this month. Let me check what's available..."
+        print(f"DEBUG: Calculated last weekday: {last_day}")
+
+        return self._search_and_present_slots()
     
     def _handle_event_relative(self, user_input: str, extracted_info: Dict) -> str:
         """Handle 'after my Project Alpha meeting' requests"""
@@ -425,7 +426,7 @@ class SmartScheduler:
         available_slots = self.conversation.meeting_context.get('available_slots', [])
         
         if not available_slots:
-            # FIXED: If no slots, search for them instead of saying we don't have any
+            # If no slots, search for them instead of saying we don't have any
             print("DEBUG: No slots available, searching...")
             
             # Check if we have enough info to search
@@ -504,7 +505,7 @@ class SmartScheduler:
                 print("🔍 Searching your calendar...")
                 time.sleep(1)
             
-            # Get preferences INCLUDING target_date
+            # Get preferences 
             preferences = {
                 'days': self.conversation.meeting_context.get('preferred_days', []),
                 'times': self.conversation.meeting_context.get('preferred_times', []),
@@ -539,7 +540,7 @@ class SmartScheduler:
             print(f"DEBUG: Searching from {start_date.date()} to {end_date.date()}")
             print(f"DEBUG: Include weekends: {include_weekends}")
             
-            # FIXED: Always call with include_weekends parameter since your calendar supports it
+            # Always call with include_weekends parameter
             all_slots = self.calendar.find_free_slots(
                 duration, 
                 start_date, 

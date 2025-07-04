@@ -42,7 +42,8 @@ class OpenAIClient:
             "constraints": [],
             "intent": "schedule|modify|cancel|clarify|change_requirements",
             "needs_clarification": boolean,
-            "clarification_question": "string or null",
+            "clarification_question": "string or null",        
+            "request_type": "simple|date_calculation|deadline_based|event_relative|requirement_change",
             
             "temporal_relationships": {
                 "type": null or "before_event|after_event|relative_date|deadline_based",
@@ -64,8 +65,14 @@ class OpenAIClient:
             "needs_calendar_lookup": boolean
         }
 
-        CRITICAL EXAMPLES for complex scenarios:
+        CRITICAL: Set "request_type" correctly:
+        - "date_calculation" for: "last weekday of month", "first monday of next month", "last friday", etc.
+        - "deadline_based" for: "before my flight", "before I leave", etc.
+        - "event_relative" for: "after my meeting", "before the presentation", etc.
+        - "requirement_change" for: "actually", "change to", "make it longer", etc.
+        - "simple" for: basic scheduling requests
 
+        EXAMPLES for complex scenarios:
         Deadline-based:
         - "45 minutes before my flight on Friday at 6 PM" → 
           {"duration_minutes": 45, "temporal_relationships": {"type": "deadline_based", "reference_event": "flight on Friday at 6 PM", "deadline": "Friday 6 PM"}}
