@@ -14,7 +14,6 @@ from src.agent.conversation_manager import ConversationManager
 from src.utils.time_parser import TimeParser
 from src.utils.logger import setup_logger
 from config.settings import settings
-from src.calendar_integration.google_calendar_oauth import create_event, list_events
 
 logger = setup_logger(__name__)
 
@@ -181,7 +180,7 @@ class SmartScheduler:
             request_type = extracted_info.get('request_type', 'simple')
             print(f"DEBUG: Request type: {request_type}")
             
-            # DEBUG: Check conversation state
+            # Check conversation state
             state = self.conversation.get_conversation_state()
             print(f"DEBUG: Conversation state: {state}")
             

@@ -151,12 +151,12 @@ class OpenAIClient:
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"""
-Context: {context}
-Available slots: {slots_text}
-User input: {user_input}
+            Context: {context}
+            Available slots: {slots_text}
+            User input: {user_input}
 
-Generate an intelligent, contextual response:
-"""}
+            Generate an intelligent, contextual response:
+            """}
         ]
         
         return self.get_completion(messages, max_tokens=400) or "I'm having trouble processing that. Could you please try again?"
