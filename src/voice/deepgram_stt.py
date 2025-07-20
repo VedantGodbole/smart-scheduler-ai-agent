@@ -1,10 +1,13 @@
-# src/voice/deepgram_stt.py
 import asyncio
 import os
 import tempfile
 import wave
 import sounddevice as sd
-from deepgram import DeepgramClient, PrerecordedOptions
+from deepgram import (
+    DeepgramClient,
+    PrerecordedOptions,
+    ClientOptionsFromEnv
+)
 from typing import Optional
 import concurrent.futures
 import logging
@@ -45,24 +48,21 @@ class DeepgramSTT:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
                 self._record_audio(tmpfile.name)
 
-                with open(tmpfile.name, "rb") as audio:
-                    # Updated for SDK v4+ API
-                    payload = {"buffer": audio}
+                with open(tmpfile.name, "rb") as audio_file:
+                    buffer_data = {"buffer": audio_file}
                     
                     # Configure transcription options
                     options = PrerecordedOptions(
-                        model="nova-3",  # Latest model
+                        model="nova-3",
                         punctuate=True,
                         language="en-US",
                         smart_format=True
                     )
                     
-                    # Make transcription request
-                    response = await self.deepgram.listen.asyncprerecorded.v("1").transcribe_file(
-                        payload, options
+                    response = self.deepgram.listen.rest.v("1").transcribe_file(
+                        buffer_data, options
                     )
                     
-                    # Extract transcript from response
                     transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
                     print(f"📝 You said: {transcript}")
                     
@@ -78,7 +78,6 @@ class DeepgramSTT:
     def listen_and_transcribe(self, timeout: float = 5.0, phrase_time_limit: float = 10.0) -> Optional[str]:
         """Synchronous wrapper for compatibility with existing code"""
         try:
-            # Update record_seconds based on phrase_time_limit
             original_record_seconds = self.record_seconds
             self.record_seconds = min(phrase_time_limit, self.record_seconds)
             

@@ -101,7 +101,7 @@ class SmartScheduler:
         """Get input from user (voice or text) with better prompting"""
         if self.voice_mode:
             print("\n🎤 I'm listening... (speak now)")
-            user_input = self.stt.listen_and_transcribe(timeout=self.listening_timeout)
+            user_input = self.stt.listen_and_transcribe()
             if user_input:
                 print(f"👤 You said: {user_input}")
             return user_input
@@ -146,7 +146,7 @@ class SmartScheduler:
             # Try one more time with a prompt
             print("🎤 Please speak now...")
             time.sleep(1)
-            user_input = self.stt.listen_and_transcribe(timeout=10.0)
+            user_input = self.stt.listen_and_transcribe()
             if user_input:
                 print(f"👤 You said: {user_input}")
                 return user_input
