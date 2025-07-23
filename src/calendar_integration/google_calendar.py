@@ -53,13 +53,11 @@ class GoogleCalendarClient:
         except Exception as e:
             logger.error(f"Error retrieving events: {e}")
             return []
-    
-    # Update your find_free_slots method in google_calendar.py with better debugging:
 
     def find_free_slots(self, duration_minutes: int, 
                 start_date: datetime, 
                 end_date: datetime,
-                working_hours: tuple = (9, 17),
+                working_hours: tuple = (3, 16),
                 include_weekends: bool = True) -> List[Dict]: 
         """Find free time slots of specified duration"""
         try:
@@ -67,8 +65,14 @@ class GoogleCalendarClient:
             print(f"  - duration: {duration_minutes} minutes")
             print(f"  - start_date: {start_date}")
             print(f"  - end_date: {end_date}")
+            print(f"  - working_hours (UTC): {working_hours[0]}:30 - {working_hours[1]}:30")
             print(f"  - include_weekends: {include_weekends}")
             
+            start_hour_utc = working_hours[0]
+            end_hour_utc = working_hours[1]
+
+            print(f"  - actual UTC range: {start_hour_utc}:30 - {end_hour_utc}:30")
+
             # Get existing events
             events = self.get_events(start_date, end_date)
             
@@ -80,7 +84,7 @@ class GoogleCalendarClient:
                 
                 if include_weekends or current_date.weekday() < 5:  
                     print(f"DEBUG: Including date {current_date}")
-                    day_slots = self._find_day_free_slots(
+                    day_slots = self._find_day_free_slots_ist_aware(
                         current_date, events, duration_minutes, working_hours
                     )
                     print(f"DEBUG: Found {len(day_slots)} slots for {current_date}")
@@ -92,10 +96,6 @@ class GoogleCalendarClient:
             
             logger.info(f"Found {len(free_slots)} free slots")
             print(f"DEBUG: Total slots found: {len(free_slots)}")
-            
-            # Print first few slots for debugging
-            for i, slot in enumerate(free_slots[:3]):
-                print(f"DEBUG: Slot {i+1}: {slot['formatted_time']}")
             
             return free_slots
             
@@ -232,12 +232,18 @@ class GoogleCalendarClient:
     
     def _format_time_slot(self, start: datetime, end: datetime) -> str:
         """Format time slot for display in UTC"""
-        # Don't convert timezone - keep as UTC
-        date_str = start.strftime('%A, %B %d')
-        start_time = start.strftime('%I:%M %p').lstrip('0')
-        end_time = end.strftime('%I:%M %p').lstrip('0')
+
+        # Convert UTC to IST for user display
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        start_ist = start.astimezone(ist_timezone)
+        end_ist = end.astimezone(ist_timezone)
         
-        return f"{date_str} from {start_time} to {end_time} UTC"
+        # Format for display
+        date_str = start_ist.strftime('%A, %B %d')
+        start_time = start_ist.strftime('%I:%M %p').lstrip('0')
+        end_time = end_ist.strftime('%I:%M %p').lstrip('0')
+        
+        return f"{date_str} from {start_time} to {end_time} IST"
     
     def create_event(self, title: str, start_time: datetime, 
                     end_time: datetime, description: str = "") -> Optional[str]:
@@ -262,7 +268,16 @@ class GoogleCalendarClient:
             ).execute()
             
             event_id = created_event.get('id')
-            logger.info(f"Created event with ID: {event_id}")
+
+            # Log with both timezones for clarity
+            ist_tz = pytz.timezone('Asia/Kolkata')
+            start_ist = start_time.astimezone(ist_tz)
+            end_ist = end_time.astimezone(ist_tz)
+
+            logger.info(f"Created event '{title}' with ID: {event_id}")
+            logger.info(f"Time (UTC): {start_time.strftime('%Y-%m-%d %H:%M')} - {end_time.strftime('%H:%M')} UTC")
+            logger.info(f"Time (IST): {start_ist.strftime('%Y-%m-%d %H:%M')} - {end_ist.strftime('%H:%M')} IST")
+            
             return event_id
             
         except Exception as e:
@@ -294,3 +309,81 @@ class GoogleCalendarClient:
         except Exception as e:
             logger.error(f"Error finding event by reference: {e}")
             return None
+
+    def _find_day_free_slots_ist_aware(self, date, events: List[Dict], 
+                duration_minutes: int, working_hours: tuple) -> List[Dict]:
+        """Find free slots for a specific day - MINIMAL IST fix"""
+        slots = []
+        start_hour_utc, end_hour_utc = working_hours
+        
+        print(f"DEBUG: _find_day_free_slots_ist_aware for {date}")
+        
+        # Create IST times and convert to UTC
+        ist_tz = pytz.timezone('Asia/Kolkata')
+        
+        # Map UTC working hours to IST
+        if start_hour_utc == 3:  # IST morning
+            ist_start_hour, ist_end_hour = 9, 12
+        elif start_hour_utc == 6:  # IST afternoon  
+            ist_start_hour, ist_end_hour = 12, 18
+        elif start_hour_utc == 12:  # IST evening
+            ist_start_hour, ist_end_hour = 18, 22
+        else:  # Full day
+            ist_start_hour, ist_end_hour = 9, 22
+        
+        # Create IST times and convert to UTC
+        day_start_ist = ist_tz.localize(datetime.combine(date, datetime.min.time().replace(hour=ist_start_hour)))
+        day_end_ist = ist_tz.localize(datetime.combine(date, datetime.min.time().replace(hour=ist_end_hour)))
+        
+        day_start_utc = day_start_ist.astimezone(pytz.UTC)
+        day_end_utc = day_end_ist.astimezone(pytz.UTC)
+        
+        print(f"DEBUG: IST working hours: {ist_start_hour}:00 - {ist_end_hour}:00")
+        print(f"DEBUG: UTC equivalent: {day_start_utc.strftime('%H:%M')} - {day_end_utc.strftime('%H:%M')}")
+        
+        # Filter events - FIXED: Skip all-day events that don't actually conflict
+        day_events = []
+        for event in events:
+            event_start = self._parse_event_time(event.get('start', {}))
+            event_end = self._parse_event_time(event.get('end', {}))
+            
+            if event_start and event_end:
+                # FIXED: Skip all-day events (they usually don't block specific time slots)
+                if (event_end - event_start).total_seconds() >= 86400:  # 24 hours = all day
+                    print(f"DEBUG: Skipping all-day event: {event.get('summary', 'No title')}")
+                    continue
+                    
+                # Convert to UTC if not already
+                if event_start.tzinfo != pytz.UTC:
+                    event_start = event_start.astimezone(pytz.UTC)
+                if event_end.tzinfo != pytz.UTC:
+                    event_end = event_end.astimezone(pytz.UTC)
+                    
+                # Check if event overlaps with our day and working hours
+                if (event_start.date() == date or event_end.date() == date) and \
+                not (event_end <= day_start_utc or event_start >= day_end_utc):
+                    day_events.append({
+                        'start': event_start,
+                        'end': event_end,
+                        'summary': event.get('summary', 'Busy')
+                    })
+        
+        print(f"DEBUG: Found {len(day_events)} relevant events for {date}")
+        
+        # If no conflicting events, create slots for the entire working period
+        if not day_events:
+            print(f"DEBUG: No conflicting events, creating slots for entire period")
+            current_time = day_start_utc
+            valid_slots = []
+            
+            while current_time + timedelta(minutes=duration_minutes) <= day_end_utc:
+                meeting_end = current_time + timedelta(minutes=duration_minutes)
+                valid_slots.append({
+                    'start': current_time,
+                    'end': meeting_end,
+                    'formatted_time': self._format_time_slot(current_time, meeting_end)
+                })
+                current_time += timedelta(hours=1)  # Move to next hour
+            
+            print(f"DEBUG: Created {len(valid_slots)} slots")
+            return valid_slots

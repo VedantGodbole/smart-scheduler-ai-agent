@@ -8,9 +8,12 @@ from src.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 class TimeParser:
-    def __init__(self, timezone: str = 'UTC'):
+    def __init__(self, timezone: str = 'Asia/Kolkata'):
         self.timezone = pytz.timezone(timezone)
+        self.utc_timezone = pytz.UTC
         self.now = datetime.now(self.timezone)
+
+        logger.info(f"TimeParser initialized with timezone: {timezone}")
     
     def parse_duration(self, text: str) -> Optional[int]:
         """Parse meeting duration from text, return minutes"""
@@ -53,7 +56,7 @@ class TimeParser:
         
         text_lower = text.lower()
         
-        # ENHANCED: Better relative date parsing (THIS IS THE KEY FIX)
+        # Better relative date parsing
         if 'tomorrow' in text_lower:
             tomorrow = (self.now + timedelta(days=1)).date()
             preferences['relative_dates'] = [{
@@ -168,6 +171,8 @@ class TimeParser:
             for hour in range(9, 18):
                 slot_time = datetime.combine(current_date, datetime.min.time().replace(hour=hour))
                 slot_time = self.timezone.localize(slot_time)
-                slots.append(slot_time)
-        
+
+                slot_time_utc = slot_time.astimezone(self.utc_timezone)
+                slots.append(slot_time_utc)
+                
         return slots

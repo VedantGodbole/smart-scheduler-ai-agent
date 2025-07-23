@@ -26,6 +26,8 @@ class SmartScheduler:
         self.calendar = GoogleCalendarClient()
         self.conversation = ConversationManager()
         self.time_parser = TimeParser('UTC')
+        self.user_timezone = pytz.timezone('Asia/Kolkata')
+        self.utc_timezone = pytz.UTC
         
         # Conversation state
         self.is_running = False
@@ -517,7 +519,7 @@ class SmartScheduler:
                 print("🔍 Searching your calendar...")
                 time.sleep(1)
             
-            # Get preferences 
+            # Get preferences INCLUDING target_date
             preferences = {
                 'days': self.conversation.meeting_context.get('preferred_days', []),
                 'times': self.conversation.meeting_context.get('preferred_times', []),
@@ -528,31 +530,41 @@ class SmartScheduler:
             # Determine date range
             if preferences.get('target_date'):
                 target_date = preferences['target_date']
+                
+                # FIXED: Use the target date properly
+                ist_tz = pytz.timezone('Asia/Kolkata')
+                utc_tz = pytz.UTC
+                
+                # Create start and end times for the target date
                 start_date = datetime.combine(target_date, datetime.min.time())
-                start_date = pytz.UTC.localize(start_date)
-                end_date = start_date + timedelta(days=1)
+                start_date = utc_tz.localize(start_date)  # Start of day UTC
+                end_date = start_date + timedelta(days=1)  # End of day UTC
+                
                 include_weekends = True
                 
+                # Set working hours based on IST time preferences
                 preferred_times = preferences.get('times', [])
                 if 'morning' in preferred_times:
-                    working_hours = (9, 12)  # 9 AM to 12 PM for morning
+                    working_hours = (3, 6)  # IST 9 AM - 12 PM = UTC 3:30 AM - 6:30 AM
+                    print(f"DEBUG: Using IST morning hours: 9:00 - 12:00 IST (UTC 3:30 - 6:30)")
                 elif 'afternoon' in preferred_times:
-                    working_hours = (12, 18)  # 12 PM to 6 PM for afternoon  
+                    working_hours = (6, 12)  # IST 12 PM - 6 PM = UTC 6:30 AM - 12:30 PM  
+                    print(f"DEBUG: Using IST afternoon hours: 12:00 - 18:00 IST (UTC 6:30 - 12:30)")
                 elif 'evening' in preferred_times:
-                    working_hours = (18, 22)  # 6 PM to 10 PM for evening
+                    working_hours = (12, 16)  # IST 6 PM - 10 PM = UTC 12:30 PM - 4:30 PM
+                    print(f"DEBUG: Using IST evening hours: 18:00 - 22:00 IST (UTC 12:30 - 16:30)")
                 else:
-                    working_hours = (9, 22)  # Full day 9 AM to 10 PM
-
+                    working_hours = (3, 16)  # Full day
             else:   
                 start_date = datetime.now(pytz.UTC)
                 end_date = start_date + timedelta(days=14)
                 include_weekends = False 
-                working_hours = (9, 17)
+                working_hours = (3, 16)
             
             print(f"DEBUG: Searching from {start_date.date()} to {end_date.date()}")
-            print(f"DEBUG: Include weekends: {include_weekends}")
+            print(f"DEBUG: Target date: {target_date}")
+            print(f"DEBUG: Working hours (UTC): {working_hours}")
             
-            # Always call with include_weekends parameter
             all_slots = self.calendar.find_free_slots(
                 duration, 
                 start_date, 
@@ -563,6 +575,8 @@ class SmartScheduler:
             
             print(f"DEBUG: Found {len(all_slots)} total slots before filtering")
             
+            # SIMPLIFIED: Use existing calendar utils filter
+            from src.calendar_integration.calendar_utils import CalendarUtils
             filtered_slots = CalendarUtils.filter_slots_by_preferences(all_slots, preferences)
             
             print(f"DEBUG: Found {len(filtered_slots)} slots after filtering")
@@ -571,7 +585,14 @@ class SmartScheduler:
                 return self._format_slot_options(filtered_slots[:5], "Great! I found these available times:")
             else:
                 if all_slots:
-                    return f"I found {len(all_slots)} available slots, but none match your preferences for {target_date.strftime('%A, %B %d') if preferences.get('target_date') else 'your selected timeframe'}. Would you like to see all available options or try different timing?"
+                    # Show what we found for debugging
+                    print(f"DEBUG: Available slots found:")
+                    for i, slot in enumerate(all_slots[:3]):
+                        ist_tz = pytz.timezone('Asia/Kolkata')
+                        start_ist = slot['start'].astimezone(ist_tz)
+                        print(f"DEBUG: Slot {i+1}: {start_ist.strftime('%A, %B %d at %I:%M %p IST')}")
+                    
+                    return f"I found {len(all_slots)} available slots, but none match your preferences for {target_date.strftime('%A, %B %d')}. Here are the available times I found - would you like to see them?"
                 else:
                     return "I couldn't find any available slots in the specified timeframe. Would you like to try a different day or time?"
                 
@@ -580,6 +601,7 @@ class SmartScheduler:
             import traceback
             traceback.print_exc()
             return "I'm having trouble accessing the calendar right now. Could you please try again in a moment?"
+
     
     def _format_slot_options(self, slots: List[Dict], intro: str) -> str:
         """Format available slots for presentation with better readability"""
@@ -589,24 +611,119 @@ class SmartScheduler:
         response = intro + "\n\n"
         
         for i, slot in enumerate(slots[:5], 1):
-            response += f"{i}. {slot['formatted_time']}\n"
-        
-        if self.voice_mode:
-            response += "\nWhich option would you prefer? Just say the number, like 'two' or 'option three'."
-        else:
-            response += "\nWhich option works best for you? You can type the number (1, 2, 3...) or describe your choice."
+            # Convert UTC to IST for display
+            start_ist = slot['start'].astimezone(self.user_timezone)
+            end_ist = slot['end'].astimezone(self.user_timezone)
+            
+            # Format with IST
+            date_str = start_ist.strftime('%A, %B %d')
+            start_time = start_ist.strftime('%I:%M %p').lstrip('0')
+            end_time = end_ist.strftime('%I:%M %p').lstrip('0')
+            
+            ist_time = f"{date_str} from {start_time} to {end_time} IST"
+            response += f"{i}. {ist_time}\n"
+
+        response += "\nWhich option works best for you? You can say the number (like 'one' or '1') or describe your choice (like 'the first one')."
         
         # Store slots for selection
         self.conversation.meeting_context['available_slots'] = slots[:5]
         
         return response.strip()
     
+    def _filter_slots_ist_aware(self, slots: List[Dict], preferences: Dict) -> List[Dict]:
+        """Filter slots with IST-aware time preferences"""
+        filtered_slots = []
+        
+        print(f"DEBUG: IST-aware filtering {len(slots)} slots with preferences: {preferences}")
+        
+        # Get target date from conversation context if available
+        target_date = preferences.get('target_date')
+        ist_tz = pytz.timezone('Asia/Kolkata')
+        
+        for slot in slots:
+            slot_start_utc = slot['start']
+            slot_date = slot_start_utc.date()
+            
+            # Convert to IST for time preference checking
+            slot_start_ist = slot_start_utc.astimezone(ist_tz)
+            slot_hour_ist = slot_start_ist.hour
+            
+            print(f"DEBUG: Checking slot UTC: {slot_start_utc.strftime('%H:%M')} IST: {slot_start_ist.strftime('%H:%M')}")
+            
+            # CHECK 1: Target date (like tomorrow or calculated date) - HIGHEST PRIORITY
+            if target_date and slot_date != target_date:
+                print(f"DEBUG: Slot {slot_date} doesn't match target {target_date}")
+                continue
+            
+            # CHECK 2: Day preferences (only if no target date)
+            if not target_date:
+                preferred_days = preferences.get('days', [])
+                if preferred_days:
+                    day_name = slot_start_utc.strftime('%A')
+                    if day_name not in preferred_days:
+                        continue
+            
+            # CHECK 3: Time preferences - NOW USING IST HOURS
+            preferred_times = preferences.get('times', [])
+            if preferred_times:
+                matches_time = False
+                for pref in preferred_times:
+                    pref_lower = str(pref).lower()
+                    if 'morning' in pref_lower:
+                        # IST Morning: 9 AM - 12 PM
+                        if 9 <= slot_hour_ist < 12:
+                            matches_time = True
+                            print(f"DEBUG: Slot at {slot_hour_ist}:00 IST matches IST morning")
+                            break
+                    elif 'afternoon' in pref_lower:
+                        # IST Afternoon: 12 PM - 6 PM
+                        if 12 <= slot_hour_ist < 18:
+                            matches_time = True
+                            print(f"DEBUG: Slot at {slot_hour_ist}:00 IST matches IST afternoon")
+                            break
+                    elif 'evening' in pref_lower:
+                        # IST Evening: 6 PM - 10 PM
+                        if 18 <= slot_hour_ist < 22:
+                            matches_time = True
+                            print(f"DEBUG: Slot at {slot_hour_ist}:00 IST matches IST evening")
+                            break
+                
+                if not matches_time:
+                    print(f"DEBUG: Slot at {slot_hour_ist}:00 IST doesn't match time preferences {preferred_times}")
+                    continue
+            
+            # CHECK 4: Constraints
+            constraints = preferences.get('constraints', [])
+            violates_constraint = False
+            for constraint in constraints:
+                if constraint == 'not_early' and slot_hour_ist < 9:  # Use IST hour
+                    violates_constraint = True
+                    break
+            
+            if violates_constraint:
+                continue
+            
+            filtered_slots.append(slot)
+            print(f"DEBUG: ✅ Slot at {slot_start_ist.strftime('%H:%M IST')} passes all filters")
+        
+        print(f"DEBUG: IST-aware filtering result: {len(filtered_slots)} matching slots")
+        return filtered_slots
+
     def _handle_slot_selection(self, user_input: str) -> str:
         """Handle user selecting a time slot"""
         available_slots = self.conversation.meeting_context.get('available_slots', [])
         
         if not available_slots:
-            return "I don't have any slots to choose from. Let me search again."
+            print("DEBUG: No slots available, searching...")
+            
+            # Check if we have enough info to search
+            duration = self.conversation.meeting_context.get('duration_minutes')
+            if duration:
+                print(f"DEBUG: Have duration {duration}, searching for slots")
+                return self._search_and_present_slots()
+            else:
+                print("DEBUG: No duration, asking for it")
+                return "I need to know how long the meeting should be. How many minutes would you like?"
         
         # Parse selection
         selection_index = None
@@ -645,7 +762,10 @@ class SmartScheduler:
             
             if event_id:
                 self.conversation.meeting_context['confirmed_slot'] = selected_slot
-                return f"Perfect! I've scheduled your meeting for {selected_slot['formatted_time']}. The meeting has been added to your calendar."
+                start_ist = selected_slot['start'].astimezone(self.user_timezone)
+                end_ist = selected_slot['end'].astimezone(self.user_timezone)
+                
+                ist_time = f"{start_ist.strftime('%A, %B %d at %I:%M %p')} - {end_ist.strftime('%I:%M %p')} IST"
             else:
                 return "I had trouble creating the calendar event. Would you like to try a different time slot?"
         else:

@@ -8,20 +8,26 @@ logger = setup_logger(__name__)
 class CalendarUtils:
     @staticmethod
     def filter_slots_by_preferences(slots: List[Dict], preferences: Dict) -> List[Dict]:
-        """ENHANCED: Filter slots with target date support"""
+        """FIXED: Filter slots with IST-aware time preferences"""
         filtered_slots = []
         
         print(f"DEBUG: Filtering {len(slots)} slots with preferences: {preferences}")
         
         # Get target date from conversation context if available
         target_date = preferences.get('target_date')
+        ist_tz = pytz.timezone('Asia/Kolkata') 
         
         for slot in slots:
             slot_start = slot['start']
             slot_date = slot_start.date()
-            slot_hour = slot_start.hour
             
-            # CHECK 1: Target date (like tomorrow or calculated date) - HIGHEST PRIORITY
+            # Convert to IST for time checking
+            slot_start_ist = slot_start.astimezone(ist_tz)
+            slot_hour_ist = slot_start_ist.hour 
+            
+            print(f"DEBUG: Checking slot UTC: {slot_start.strftime('%H:%M')} IST: {slot_start_ist.strftime('%H:%M')}")
+            
+            # CHECK 1: Target date (like tomorrow or calculated date)
             if target_date and slot_date != target_date:
                 print(f"DEBUG: Slot {slot_date} doesn't match target {target_date}")
                 continue
@@ -41,28 +47,33 @@ class CalendarUtils:
                 for pref in preferred_times:
                     pref_lower = str(pref).lower()
                     if 'morning' in pref_lower:
-                        if 'late' in pref_lower and 10 <= slot_hour < 12:
+                        # FIXED: Check IST morning hours (9 AM - 12 PM IST)
+                        if 9 <= slot_hour_ist < 12:
                             matches_time = True
+                            print(f"DEBUG: Slot at {slot_hour_ist}:00 IST matches IST morning ✅")
                             break
-                        elif 'late' not in pref_lower and 9 <= slot_hour < 12:
+                    elif 'afternoon' in pref_lower:
+                        # FIXED: Check IST afternoon hours (12 PM - 6 PM IST)
+                        if 12 <= slot_hour_ist < 18:
                             matches_time = True
+                            print(f"DEBUG: Slot at {slot_hour_ist}:00 IST matches IST afternoon ✅")
                             break
-                    elif 'afternoon' in pref_lower and 12 <= slot_hour < 18:
-                        matches_time = True
-                        break
-                    elif 'evening' in pref_lower and 18 <= slot_hour < 22:
-                        matches_time = True
-                        break
+                    elif 'evening' in pref_lower:
+                        # FIXED: Check IST evening hours (6 PM - 10 PM IST)
+                        if 18 <= slot_hour_ist < 22:
+                            matches_time = True
+                            print(f"DEBUG: Slot at {slot_hour_ist}:00 IST matches IST evening ✅")
+                            break
                 
                 if not matches_time:
-                    print(f"DEBUG: Slot at {slot_hour}:00 doesn't match time preferences {preferred_times}")
+                    print(f"DEBUG: Slot at {slot_hour_ist}:00 IST doesn't match time preferences {preferred_times} ❌")
                     continue
             
             # CHECK 4: Constraints
             constraints = preferences.get('constraints', [])
             violates_constraint = False
             for constraint in constraints:
-                if constraint == 'not_early' and slot_hour < 9:
+                if constraint == 'not_early' and slot_hour_ist < 9:
                     violates_constraint = True
                     break
             
@@ -70,6 +81,7 @@ class CalendarUtils:
                 continue
             
             filtered_slots.append(slot)
+            print(f"DEBUG: ✅ Slot at {slot_start_ist.strftime('%H:%M IST')} passes all filters")
         
         print(f"DEBUG: Filtered to {len(filtered_slots)} matching slots")
         return filtered_slots
